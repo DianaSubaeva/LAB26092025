@@ -1,0 +1,38 @@
+import csv
+import random
+import time
+from datetime import datetime, timedelta
+
+
+def generate_data(amount):
+    start_time = time.time()
+
+    names = ['Алексей', 'Мария', 'Иван', 'Ольга', 'Дмитрий', 'Елена', 'Сергей', 'Анна']
+    surnames = ['Иванов', 'Петров', 'Сидоров', 'Смирнов', 'Кузнецов', 'Попов', 'Васильев']
+    cities = ['Москва', 'Санкт-Петербург', 'Новосибирск', 'Екатеринбург', 'Казань']
+
+    with open('test_data.csv', 'w', newline='', encoding='utf-8') as file:
+        writer = csv.writer(file)
+        writer.writerow(['ID', 'Имя', 'Фамилия', 'Email', 'Телефон', 'Город', 'Дата_регистрации'])
+
+        for i in range(amount):
+            name = random.choice(names)
+            surname = random.choice(surnames)
+            email = f"{name.lower()}.{surname.lower()}{i}@example.com"
+            phone = f"+7{random.randint(900, 999)}{random.randint(1000000, 9999999)}"
+            city = random.choice(cities)
+            date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            writer.writerow([i + 1, name, surname, email, phone, city, date])
+
+            if amount > 10000 and (i + 1) % 10000 == 0:
+                print(f"Сгенерировано {i + 1} записей...")
+
+    end_time = time.time()
+    print(f"Сгенерировано {amount} записей за {end_time - start_time:.2f} секунд")
+
+
+# Usage
+if __name__ == "__main__":
+    amount = int(input("Введите количество записей: "))
+    generate_data(amount)
