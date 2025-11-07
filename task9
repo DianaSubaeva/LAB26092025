@@ -1,0 +1,148 @@
+import hashlib
+import os
+import time
+from collections import defaultdict
+from multiprocessing import Process, Queue, cpu_count
+
+
+def calculate_file_hash(file_path, chunk_size=8192):
+    hash_md5 = hashlib.md5()
+    try:
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(chunk_size), b""):
+                hash_md5.update(chunk)
+        return hash_md5.hexdigest()
+    except (IOError, OSError) as e:
+        print(f"Ошибка чтения файла {file_path}: {e}")
+        return None
+
+def worker_hash_files(file_chunk, result_queue):
+
+    local_hashes = defaultdict(list)
+
+    for file_path in file_chunk:
+        file_hash = calculate_file_hash(file_path)
+        if file_hash:
+            local_hashes[file_hash].append(file_path)
+
+    result_queue.put(local_hashes)
+
+
+def find_duplicates_multi_process(file_list, num_processes=None):
+
+    start_time = time.time()
+
+    if num_processes is None:
+        num_processes = cpu_count()
+
+    print(f"Начинаем поиск дубликатов (многопроцессный метод, {num_processes} процессов)...")
+    print(f"Обрабатывается {len(file_list)} файлов...")
+
+    # Разделяем список файлов на части
+    chunk_size = len(file_list) // num_processes
+    file_chunks = []
+
+    for i in range(num_processes):
+        start = i * chunk_size
+        end = (i + 1) * chunk_size if i != num_processes - 1 else len(file_list)
+        file_chunks.append(file_list[start:end])
+
+    # Запускаем процессы
+    result_queue = Queue()
+    processes = []
+
+    for i, chunk in enumerate(file_chunks):
+        if chunk:  # Создаем процесс только если есть файлы для обработки
+            p = Process(target=worker_hash_files, args=(chunk, result_queue))
+            processes.append(p)
+            p.start()
+            print(f"🚀 Запущен процесс {i + 1} для обработки {len(chunk)} файлов")
+
+    # Собираем результаты
+    all_hashes = defaultdict(list)
+
+    for i in range(len(processes)):
+        chunk_hashes = result_queue.get()
+        for hash_val, files in chunk_hashes.items():
+            all_hashes[hash_val].extend(files)
+        print(f"Получены результаты от процесса {i + 1}")
+
+    # Ждем завершения всех процессов
+    for p in processes:
+        p.join()
+
+    # Фильтруем только дубликаты
+    duplicates = {hash_val: files for hash_val, files in all_hashes.items() if len(files) > 1}
+
+    end_time = time.time()
+    print(f"Многопроцессный метод: Найдено {len(duplicates)} групп дубликатов за {end_time - start_time:.2f} секунд")
+
+    return duplicates
+
+
+def get_all_files(directory):
+
+    file_list = []
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            file_path = os.path.join(root, file)
+            file_list.append(file_path)
+    return file_list
+
+
+# Основная программа
+if __name__ == "__main__":
+    print("ПРОГРАММА ПОИСКА ДУБЛИКАТОВ ФАЙЛОВ")
+    print("=" * 50)
+
+    # 1. Запрашиваем директорию для поиска
+    search_directory = input("Введите путь к директории для поиска: ").strip()
+
+    # Проверяем существование директории
+    if not os.path.exists(search_directory):
+        print(f"Ошибка: Директория '{search_directory}' не существует!")
+        exit()
+
+    # 2. Запрашиваем количество процессов
+    try:
+        num_proc = int(input(f"Введите количество процессов (по умолчанию {cpu_count()}): ") or cpu_count())
+    except ValueError:
+        num_proc = cpu_count()
+
+    print(f"\nСканируем директорию: {search_directory}")
+
+    # 3. Получаем список всех файлов
+    all_files = get_all_files(search_directory)
+
+    if not all_files:
+        print("В указанной директории не найдено файлов!")
+        exit()
+
+    print(f"Найдено {len(all_files)} файлов для проверки")
+
+    # 4. Запускаем поиск дубликатов
+    print("\nЗапускаем поиск дубликатов...")
+    duplicates = find_duplicates_multi_process(all_files, num_proc)
+
+    # 5. Выводим результаты
+    print("\n" + "=" * 50)
+    print("РЕЗУЛЬТАТЫ ПОИСКА:")
+    print("=" * 50)
+
+    if duplicates:
+        total_duplicate_files = sum(len(files) for files in duplicates.values())
+        print(f"Найдено {len(duplicates)} групп дубликатов")
+        print(f"Всего файлов-дубликатов: {total_duplicate_files}")
+        print(f"Можно освободить: {total_duplicate_files - len(duplicates)} файлов")
+
+        print("\n Группы дубликатов:")
+        for i, (hash_val, files) in enumerate(duplicates.items(), 1):
+            print(f"\nГруппа {i} ({len(files)} файлов, хеш: {hash_val[:16]}...):")
+            for file in files:
+                file_size = os.path.getsize(file) if os.path.exists(file) else 0
+                print(f"{file} ({file_size} байт)")
+    else:
+        print("Дубликаты не найдены!")
+
+    print("\n" + "=" * 50)
+    print("Поиск завершен!")
